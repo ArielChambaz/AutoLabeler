@@ -27,23 +27,7 @@ pip install ultralytics opencv-python
 3. Configurez les paramètres (modèle, vidéo, images, fréquence d'extraction, seuils, etc.) directement dans l'interface utilisateur (UI) qui s'affiche.
 
 ## Exemple de configuration
-- **Vidéo, extraction toutes les 2 secondes** :
-  ```python
-  VIDEO_PATH = "ma_video.mp4"
-  TIME_INTERVAL = 2.0
-  FRAME_INTERVAL = None
-  ```
-- **Vidéo, extraction tous les 60 frames** :
-  ```python
-  VIDEO_PATH = "ma_video.mp4"
-  TIME_INTERVAL = None
-  FRAME_INTERVAL = 60
-  ```
-- **Images dans un dossier** :
-  ```python
-  VIDEO_PATH = None
-  IMAGES_DIR = "mon_dossier_images"
-  ```
+<img width="597" height="497" alt="image" src="https://github.com/user-attachments/assets/8e87922f-29d3-4a15-9c76-bdcc8582da58" />
 
 ## Sortie
 Le script crée un dossier de sortie avec la structure suivante :
