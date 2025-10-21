@@ -81,7 +81,19 @@ The script generates an output folder with the following structure:
   data.yaml # detected classes
 ```
 
-Once the YOLO-format folders with pre-annotations are generated, simply upload them to Roboflow to finalize your dataset.
+
+---
+
+🔄 **Workflow to Upload on Roboflow**
+
+1. Go to Upload Data in your Roboflow project.
+2. Click on Folder and add the folder that the script created.
+3. Click Upload Dataset to start the import.
+4. Once the upload is done, go to Annotate in Roboflow.
+5. Open your latest task with the same name as your last upload.
+6. Move to the Unassigned tab.
+7. Click on Label Myself.
+8. You will now be able to view, edit, and modify all your bounding boxes.
 
 ---
 
