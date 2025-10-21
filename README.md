@@ -5,12 +5,27 @@
 
 ---
 
+
 ## ⭐ Features
 
-- Extract images from a video (by frame or time interval)  
-- Copy images from an existing folder  
-- Automatically annotate images using a YOLO (Ultralytics) model  
-- Generate YOLO `.txt` label files and a `data.yaml` configuration file compatible with Roboflow  
+AutoLabeler lets you save time and effort when managing datasets by using your already trained YOLO model to automatically generate annotations for new images or video frames.
+
+🎞 Extract images from a video (by frame or time interval)
+Turn any video into a set of images automatically. You can choose how often to extract frames (every n frames or every n seconds) to build a rich dataset from your footage.
+
+🖼 Copy images from an existing folder
+If your images are already stored somewhere, AutoLabeler can directly use them — no need for a video source.
+
+🤖 Automatically annotate using your trained YOLO model
+Instead of redrawing boxes for every image, AutoLabeler uses your pretrained YOLO model to detect objects and automatically create annotation files.
+This is especially useful when your model already performs well — it allows you to skip manual reannotation for objects it recognizes reliably, drastically reducing dataset labeling time.
+
+📂 Generate YOLO .txt label files and a data.yaml for Roboflow
+AutoLabeler outputs a clean YOLO-format dataset (images/, labels/, and data.yaml) ready to upload directly to Roboflow.
+You can then visually check and fine-tune the automatically generated annotations if needed.
+
+💡 In short: AutoLabeler uses your YOLO model as a “smart annotator.”
+You just provide videos or images, and it automatically produces labeled data — perfect for dataset expansion, model fine-tuning, or quick reannotation without wasting time on what your model already masters.
 
 ---
 
