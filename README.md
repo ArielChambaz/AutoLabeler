@@ -1,46 +1,54 @@
 # AutoLabeler
 
-AutoLabeler est un outil Python pour l'extraction automatique d'images depuis une vidéo ou un dossier, et l'annotation automatique de ces images avec un modèle YOLO pour générer un dataset prêt à l'emploi (format YOLO).
+AutoLabeler is a Python tool for automatic image extraction from a video or folder, and automatic annotation of these images using a YOLO model to generate a ready-to-use dataset (YOLO format).
 
 ## Fonctionnalités
-- Extraction d'images depuis une vidéo (par intervalle de frames ou de temps)
-- Copie d'images depuis un dossier existant
-- Annotation automatique avec un modèle YOLO (Ultralytics)
-- Génération des fichiers `.txt` YOLO et d'un fichier `data.yaml` compatible Roboflow
+- Features
+- Extract images from a video (by frame or time interval)
+- Copy images from an existing folder
+- Automatic annotation with a YOLO model (Ultralytics)
+- Generation of YOLO `.txt` files and a `data.yaml` file compatible with Roboflow
 
 ## Prérequis
+- Requirements
 - Python 3.8+
 - [Ultralytics YOLO](https://docs.ultralytics.com/) (`pip install ultralytics`)
 - OpenCV (`pip install opencv-python`)
 
+## Installation
 ## Installation
 ```bash
 pip install ultralytics opencv-python
 ```
 
 ## Utilisation
-1. Placez votre vidéo ou vos images dans le dossier du projet.
-2. Lancez le script :
-    ```bash
-    python autolabeller.py
-    ```
-3. Configurez les paramètres (modèle, vidéo, images, fréquence d'extraction, seuils, etc.) directement dans l'interface utilisateur (UI) qui s'affiche.
+## Usage
+1. Place your video or images in the project folder.
+2. Run the script:
+  ```bash
+  python autolabeller.py
+  ```
+3. Configure the parameters (model, video, images, extraction frequency, thresholds, etc.) directly in the user interface (UI) that appears.
 
 ## Exemple de configuration
 <img width="597" height="497" alt="image" src="https://github.com/user-attachments/assets/8e87922f-29d3-4a15-9c76-bdcc8582da58" />
+## Example configuration
+<img width="597" height="497" alt="image" src="https://github.com/user-attachments/assets/8e87922f-29d3-4a15-9c76-bdcc8582da58" />
 
 ## Sortie
-Le script crée un dossier de sortie avec la structure suivante :
+## Output
+The script creates an output folder with the following structure:
 ```
-<nom_video_ou_images_dataset>/
-  images/   # images extraites ou copiées
-  labels/   # annotations YOLO
-  data.yaml # classes détectées
+<video_or_images_dataset_name>/
+  images/   # extracted or copied images
+  labels/   # YOLO annotations
+  data.yaml # detected classes
 ```
-**Une fois les dossiers générés au format YOLO avec les préannotations, il ne reste plus qu'à les uploader sur Roboflow pour finaliser votre dataset.**
+**Once the folders are generated in YOLO format with pre-annotations, all you have to do is upload them to Roboflow to finalize your dataset.**
 
 ## Auteurs
+## Authors
 - Ariel Chambaz
 
-## Licence
+## License
 MIT
