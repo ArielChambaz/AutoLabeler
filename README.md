@@ -43,10 +43,13 @@ You just provide videos or images, and it automatically produces labeled data �
 
 ---
 
+
 🛠️ **Installation**
 
+You can install all required dependencies with the following command:
+
 ```bash
-pip install ultralytics opencv-python
+pip install -r requirements.txt
 ```
 
 ---
