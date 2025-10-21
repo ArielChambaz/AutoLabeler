@@ -37,6 +37,7 @@ Le script crée un dossier de sortie avec la structure suivante :
   labels/   # annotations YOLO
   data.yaml # classes détectées
 ```
+**Une fois les dossiers générés au format YOLO avec les préannotations, il ne reste plus qu'à les uploader sur Roboflow pour finaliser votre dataset.**
 
 ## Auteurs
 - Ariel Chambaz
