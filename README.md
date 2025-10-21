@@ -50,6 +50,7 @@ pip install ultralytics opencv-python
 🧩 **Example Configuration**
 
 Example UI
+<img width="597" height="502" alt="Screenshot from 2025-10-21 10-09-03" src="https://github.com/user-attachments/assets/b2ce0aa2-8c30-4eda-898c-b57fe46fd448" />
 
 ---
 
