@@ -1,4 +1,5 @@
 # auto_annotate_yolo.py
+# pip install ultralytics opencv-python tkinter torch transformers pillow
 import os, glob, shutil, cv2
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -6,18 +7,19 @@ from tkinter import filedialog, messagebox
 # --- IMPORTS ---
 from ultralytics import YOLO
 import torch
-# CORRECTION MAJEURE ICI : Utilisation de DFineForObjectDetection
+# MAJOR CORRECTION HERE: Using DFineForObjectDetection for detection task
 from transformers import DFineForObjectDetection, AutoImageProcessor
 from PIL import Image
 
-# Modèle par défaut (si laissé vide)
+# Default model (if path field is left empty)
 DEFAULT_HF_MODEL = "ustc-community/dfine-xlarge-obj365"
 
 # ------------------------
-# FONCTIONS PRINCIPALES
+# MAIN FUNCTIONS
 # ------------------------
 
 def extract_frames_from_video(video_path, output_dir, frame_interval=30, time_interval=None):
+    """Extract frames from a video at a given interval."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise ValueError(f"Cannot open video: {video_path}")
@@ -26,6 +28,7 @@ def extract_frames_from_video(video_path, output_dir, frame_interval=30, time_in
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     print(f"Video: {os.path.basename(video_path)} | FPS: {fps} | Total frames: {total_frames}")
 
+    # Determine extraction interval
     if time_interval is not None:
         interval_frames = int(fps * time_interval)
         print(f"Extracting 1 frame every {time_interval}s ({interval_frames} frames)")
@@ -60,6 +63,7 @@ def extract_frames_from_video(video_path, output_dir, frame_interval=30, time_in
 
 
 def create_output_directory(video_path=None):
+    """Create an output directory based on the video name or a default one."""
     if video_path:
         name = os.path.splitext(os.path.basename(video_path))[0]
         out_root = name
@@ -70,7 +74,8 @@ def create_output_directory(video_path=None):
 
 
 def process_images(model_path, model_type, video_path, images_dir, frame_interval, time_interval, conf, iou):
-    # 1. Préparation des images
+    """Full pipeline: video frame extraction → Prediction → Label generation."""
+    # 1. Image preparation
     if video_path and os.path.exists(video_path):
         print("\n🎥 Video mode enabled")
         OUT_ROOT = create_output_directory(video_path)
@@ -102,7 +107,7 @@ def process_images(model_path, model_type, video_path, images_dir, frame_interva
     os.makedirs(LBL_DIR, exist_ok=True)
 
     # ==========================================
-    # BRANCHE 1 : YOLO (Ultralytics)
+    # BRANCH 1 : YOLO (Ultralytics)
     # ==========================================
     if model_type == "YOLO":
         print(f"🚀 Loading YOLO model from file: {model_path}")
@@ -132,31 +137,31 @@ def process_images(model_path, model_type, video_path, images_dir, frame_interva
             print(f"OK (YOLO) {fn} -> {txt_path}")
 
     # ==========================================
-    # BRANCHE 2 : D-FINE (Hugging Face / Official Docs)
+    # BRANCH 2 : D-FINE (Hugging Face / Official Docs)
     # ==========================================
     elif model_type == "DFINE":
         
-        # --- LOGIQUE DE CHARGEMENT ---
+        # --- LOADING LOGIC ---
         if not model_path or model_path.strip() == "":
             print(f"🌐 No local file selected. Downloading/Loading from Hugging Face: {DEFAULT_HF_MODEL}")
             target_model = DEFAULT_HF_MODEL
         else:
             print(f"📂 Local file selected. Loading configuration from folder parent...")
-            # Si c'est un fichier (.pth, .safetensors), on prend le dossier parent
+            # If it's a file (.pth, .safetensors), we use the parent directory
             if os.path.isfile(model_path):
                 target_model = os.path.dirname(model_path)
             else:
                 target_model = model_path
             
-            # Vérification de sécurité
-            if not os.path.exists(os.path.join(target_model, "config.json")):
+            # Safety check
+            if not os.path.exists(os.path.join(target_model, "config.json")) and target_model != DEFAULT_HF_MODEL:
                  messagebox.showerror("Config Error", 
                     f"Could not find 'config.json' in:\n{target_model}\n\n"
                     "Ensure your .pth/.safetensors file is in the same folder as config.json")
                  return
         
         try:
-            # --- UTILISATION DE LA CLASSE OFFICIELLE ---
+            # --- USING THE OFFICIAL CLASS ---
             print(f"Loading DFineForObjectDetection from {target_model}")
             image_processor = AutoImageProcessor.from_pretrained(target_model)
             model = DFineForObjectDetection.from_pretrained(target_model)
@@ -175,6 +180,7 @@ def process_images(model_path, model_type, video_path, images_dir, frame_interva
             stem, _ = os.path.splitext(fn)
 
             try:
+                # D-FINE uses PIL for preprocessing
                 image_pil = Image.open(img_path).convert("RGB")
             except Exception:
                 print(f"❌ Skipped invalid image: {img_path}")
@@ -186,10 +192,11 @@ def process_images(model_path, model_type, video_path, images_dir, frame_interva
             with torch.no_grad():
                 outputs = model(**inputs)
 
-            # --- POST-PROCESSING OFFICIEL ---
-            # D-FINE attend 'target_sizes' pour redimensionner les boites
-            target_sizes = torch.tensor([(height, width)]) # Format (H, W)
+            # --- OFFICIAL POST-PROCESSING ---
+            # target_sizes is used to rescale bounding boxes, format must be (H, W)
+            target_sizes = torch.tensor([(height, width)]) 
             
+            # DFineForObjectDetection outputs 'logits' and 'pred_boxes' directly
             results = image_processor.post_process_object_detection(
                 outputs, 
                 threshold=conf, 
@@ -199,18 +206,16 @@ def process_images(model_path, model_type, video_path, images_dir, frame_interva
             txt_path = os.path.join(LBL_DIR, f"{stem}.txt")
             with open(txt_path, "w") as f:
                 for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
-                    # Pas besoin de filtrer par score ici si threshold=conf est déjà passé à post_process
-                    # Mais on garde la sécurité
                     if score >= conf:
                         xmin, ymin, xmax, ymax = box.tolist()
                         
-                        # Conversion vers format YOLO normalisé (x_center, y_center, w, h)
+                        # Conversion to normalized YOLO format (x_center, y_center, w, h)
                         x_center = ((xmin + xmax) / 2) / width
                         y_center = ((ymin + ymax) / 2) / height
                         box_width = (xmax - xmin) / width
                         box_height = (ymax - ymin) / height
                         
-                        # Clamp pour rester entre 0 et 1 (sécurité)
+                        # Clamp for safety (keep values between 0 and 1)
                         x_center = max(0, min(1, x_center))
                         y_center = max(0, min(1, y_center))
                         box_width = max(0, min(1, box_width))
@@ -221,7 +226,7 @@ def process_images(model_path, model_type, video_path, images_dir, frame_interva
             print(f"OK (D-FINE) {fn} -> {txt_path}")
 
     # ==========================================
-    # FIN
+    # END OF PROCESSING
     # ==========================================
     detected = len([p for p in image_paths if os.path.exists(os.path.join(LBL_DIR, os.path.splitext(os.path.basename(p))[0] + ".txt")) and os.path.getsize(os.path.join(LBL_DIR, os.path.splitext(os.path.basename(p))[0] + ".txt")) > 0])
     
@@ -234,7 +239,7 @@ def process_images(model_path, model_type, video_path, images_dir, frame_interva
 # ------------------------
 
 def update_browse_behavior():
-    """Efface le chemin si on change de mode."""
+    """Clear path if mode changes."""
     model_path_var.set("")
 
 def browse_video():
@@ -273,6 +278,7 @@ def run_process():
         conf = float(conf_var.get())
         iou = float(iou_var.get())
 
+        # Validation checks
         if model_type == "YOLO" and not os.path.exists(model_path):
             messagebox.showerror("Error", "YOLO requires a local .pt file path.")
             return
@@ -305,21 +311,21 @@ time_interval_var = tk.StringVar(value="")
 conf_var = tk.StringVar(value="0.55")
 iou_var = tk.StringVar(value="0.45")
 
-# 1. Sélection du Mode
+# 1. Select Model Type
 type_frame = tk.LabelFrame(root, text="1. Select Model Type", padx=10, pady=5)
 type_frame.pack(fill="x", padx=20, pady=10)
 
 tk.Radiobutton(type_frame, text="Ultralytics YOLO (.pt)", variable=model_type_var, value="YOLO", command=update_browse_behavior).pack(side="left", padx=20)
 tk.Radiobutton(type_frame, text="Hugging Face D-FINE (Online/Local)", variable=model_type_var, value="DFINE", command=update_browse_behavior).pack(side="left", padx=20)
 
-# 2. Sélection du Modèle
+# 2. Select Model
 tk.Label(root, text="Model Path (Leave empty for D-FINE online download):").pack(anchor="w", padx=20, pady=(5, 0))
 entry_frame = tk.Frame(root)
 entry_frame.pack(fill="x", padx=20)
 tk.Entry(entry_frame, textvariable=model_path_var).pack(side="left", fill="x", expand=True)
 tk.Button(entry_frame, text="Browse...", command=browse_model).pack(side="left", padx=5)
 
-# 3. Vidéo ou Images
+# 3. Video or Images
 tk.Label(root, text="Video (optional):").pack(anchor="w", padx=20, pady=(10, 0))
 entry_frame_vid = tk.Frame(root)
 entry_frame_vid.pack(fill="x", padx=20)
@@ -332,7 +338,7 @@ entry_frame_img.pack(fill="x", padx=20)
 tk.Entry(entry_frame_img, textvariable=images_dir_var).pack(side="left", fill="x", expand=True)
 tk.Button(entry_frame_img, text="Choose folder...", command=browse_images).pack(side="left", padx=5)
 
-# 4. Paramètres
+# 4. Parameters
 frame_params = tk.Frame(root)
 frame_params.pack(pady=10)
 tk.Label(frame_params, text="Frame interval:").grid(row=0, column=0, padx=5)
@@ -347,7 +353,7 @@ tk.Entry(frame_conf, textvariable=conf_var, width=6).grid(row=0, column=1, padx=
 tk.Label(frame_conf, text="IoU Threshold:").grid(row=0, column=2, padx=5)
 tk.Entry(frame_conf, textvariable=iou_var, width=6).grid(row=0, column=3, padx=5)
 
-# 5. Bouton Start
+# 5. Start Button
 tk.Button(root, text="START AUTO ANNOTATION", command=run_process, bg="#2ecc71", fg="white", font=("Arial", 12, "bold")).pack(pady=20, ipadx=10, ipady=5)
 tk.Label(root, text="Auto Annotate YOLO/D-FINE", fg="gray").pack(side="bottom", pady=5)
 
