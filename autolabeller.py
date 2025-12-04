@@ -1,5 +1,5 @@
 # auto_annotate_yolo.py
-# pip install ultralytics opencv-python tkinter torch transformers pillow
+# pip install ultralytics opencv-python tkinter torch transformers pillow rfdetr supervision
 import os, glob, shutil, cv2
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -7,12 +7,29 @@ from tkinter import filedialog, messagebox
 # --- IMPORTS ---
 from ultralytics import YOLO
 import torch
-# MAJOR CORRECTION HERE: Using DFineForObjectDetection for detection task
 from transformers import DFineForObjectDetection, AutoImageProcessor
 from PIL import Image
 
+# IMPORTS SPÉCIFIQUES À VOTRE MODÈLE RFDETR
+try:
+    from rfdetr import RFDETRBase
+    import supervision as sv
+except ImportError:
+    # Laissez l'erreur se manifester si les dépendances ne sont pas là
+    pass 
+
 # Default model (if path field is left empty)
 DEFAULT_HF_MODEL = "ustc-community/dfine-xlarge-obj365"
+
+# ------------------------
+# CUSTOM MODEL DEFINITIONS (RFDETR)
+# ------------------------
+
+# Définition des classes pour le modèle CUSTOM
+# Votre seule classe est 'person' avec l'ID 0
+CUSTOM_CLASS_NAMES = {
+    0: "person", 
+}
 
 # ------------------------
 # MAIN FUNCTIONS
@@ -73,9 +90,40 @@ def create_output_directory(video_path=None):
     return out_root
 
 
-def process_images(model_path, model_type, video_path, images_dir, frame_interval, time_interval, conf, iou):
+def process_images(model_path, video_path, images_dir, frame_interval, time_interval, conf, iou):
     """Full pipeline: video frame extraction → Prediction → Label generation."""
-    # 1. Image preparation
+    
+    # 0. Détermination automatique du type de modèle
+    model_type = "UNKNOWN"
+    target_model_path = ""
+    
+    if not model_path or model_path.strip() == "":
+        model_type = "DFINE_ONLINE"
+    else:
+        ext = os.path.splitext(model_path)[-1].lower()
+        if ext == ".pt":
+            model_type = "YOLO"
+            target_model_path = model_path
+        elif ext in [".pth", ".safetensors"]:
+            # NOUVELLE VÉRIFICATION : Teste si le nom de fichier contient 'rfdetr'
+            if "rfdetr" in os.path.basename(model_path).lower():
+                model_type = "RFDETR"
+                target_model_path = model_path
+            else:
+                 messagebox.showerror("Model Error", 
+                    "Ce script ne sait traiter que les modèles .pth/.safetensors s'ils sont de type RFDETR (nom de fichier contenant 'rfdetr').\n"
+                    "Veuillez choisir un modèle YOLO (.pt) ou D-FINE, ou renommer votre fichier.")
+                 return
+        elif os.path.isdir(model_path) and os.path.exists(os.path.join(model_path, "config.json")):
+             model_type = "DFINE_LOCAL"
+             target_model_path = model_path
+        else:
+            messagebox.showerror("Error", f"Unsupported file or folder structure: {model_path}")
+            return
+
+    print(f"Model Path: {model_path} | Detected Type: {model_type}")
+
+    # 1. Image preparation (identique)
     if video_path and os.path.exists(video_path):
         print("\n🎥 Video mode enabled")
         OUT_ROOT = create_output_directory(video_path)
@@ -106,13 +154,14 @@ def process_images(model_path, model_type, video_path, images_dir, frame_interva
     LBL_DIR = os.path.join(OUT_ROOT, "labels")
     os.makedirs(LBL_DIR, exist_ok=True)
 
+
     # ==========================================
-    # BRANCH 1 : YOLO (Ultralytics)
+    # BRANCH 1 : YOLO (Ultralytics - .pt)
     # ==========================================
     if model_type == "YOLO":
-        print(f"🚀 Loading YOLO model from file: {model_path}")
+        print(f"🚀 Loading YOLO model from file: {target_model_path}")
         try:
-            model = YOLO(model_path)
+            model = YOLO(target_model_path)
             names = model.names 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load YOLO model: {e}")
@@ -137,37 +186,20 @@ def process_images(model_path, model_type, video_path, images_dir, frame_interva
             print(f"OK (YOLO) {fn} -> {txt_path}")
 
     # ==========================================
-    # BRANCH 2 : D-FINE (Hugging Face / Official Docs)
+    # BRANCH 2 : D-FINE (Hugging Face - Online ou Local avec config.json)
     # ==========================================
-    elif model_type == "DFINE":
+    elif model_type in ["DFINE_ONLINE", "DFINE_LOCAL"]:
         
         # --- LOADING LOGIC ---
-        if not model_path or model_path.strip() == "":
-            print(f"🌐 No local file selected. Downloading/Loading from Hugging Face: {DEFAULT_HF_MODEL}")
-            target_model = DEFAULT_HF_MODEL
-        else:
-            print(f"📂 Local file selected. Loading configuration from folder parent...")
-            # If it's a file (.pth, .safetensors), we use the parent directory
-            if os.path.isfile(model_path):
-                target_model = os.path.dirname(model_path)
-            else:
-                target_model = model_path
-            
-            # Safety check
-            if not os.path.exists(os.path.join(target_model, "config.json")) and target_model != DEFAULT_HF_MODEL:
-                 messagebox.showerror("Config Error", 
-                    f"Could not find 'config.json' in:\n{target_model}\n\n"
-                    "Ensure your .pth/.safetensors file is in the same folder as config.json")
-                 return
+        target_hf_model = DEFAULT_HF_MODEL if model_type == "DFINE_ONLINE" else target_model_path
+        print(f"🌐 Loading D-FINE model from: {target_hf_model}")
         
         try:
-            # --- USING THE OFFICIAL CLASS ---
-            print(f"Loading DFineForObjectDetection from {target_model}")
-            image_processor = AutoImageProcessor.from_pretrained(target_model)
-            model = DFineForObjectDetection.from_pretrained(target_model)
+            image_processor = AutoImageProcessor.from_pretrained(target_hf_model)
+            model = DFineForObjectDetection.from_pretrained(target_hf_model)
             names = model.config.id2label
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load D-FINE model.\nSource: {target_model}\n\nError: {e}")
+            messagebox.showerror("Error", f"Failed to load D-FINE model.\nSource: {target_hf_model}\n\nError: {e}")
             return
 
         with open(os.path.join(OUT_ROOT, "data.yaml"), "w") as f:
@@ -180,7 +212,6 @@ def process_images(model_path, model_type, video_path, images_dir, frame_interva
             stem, _ = os.path.splitext(fn)
 
             try:
-                # D-FINE uses PIL for preprocessing
                 image_pil = Image.open(img_path).convert("RGB")
             except Exception:
                 print(f"❌ Skipped invalid image: {img_path}")
@@ -192,11 +223,8 @@ def process_images(model_path, model_type, video_path, images_dir, frame_interva
             with torch.no_grad():
                 outputs = model(**inputs)
 
-            # --- OFFICIAL POST-PROCESSING ---
-            # target_sizes is used to rescale bounding boxes, format must be (H, W)
             target_sizes = torch.tensor([(height, width)]) 
             
-            # DFineForObjectDetection outputs 'logits' and 'pred_boxes' directly
             results = image_processor.post_process_object_detection(
                 outputs, 
                 threshold=conf, 
@@ -209,13 +237,12 @@ def process_images(model_path, model_type, video_path, images_dir, frame_interva
                     if score >= conf:
                         xmin, ymin, xmax, ymax = box.tolist()
                         
-                        # Conversion to normalized YOLO format (x_center, y_center, w, h)
+                        # Conversion to normalized YOLO format
                         x_center = ((xmin + xmax) / 2) / width
                         y_center = ((ymin + ymax) / 2) / height
                         box_width = (xmax - xmin) / width
                         box_height = (ymax - ymin) / height
                         
-                        # Clamp for safety (keep values between 0 and 1)
                         x_center = max(0, min(1, x_center))
                         y_center = max(0, min(1, y_center))
                         box_width = max(0, min(1, box_width))
@@ -224,6 +251,79 @@ def process_images(model_path, model_type, video_path, images_dir, frame_interva
                         cls = label.item()
                         f.write(f"{cls} {x_center:.6f} {y_center:.6f} {box_width:.6f} {box_height:.6f}\n")
             print(f"OK (D-FINE) {fn} -> {txt_path}")
+
+    # ==========================================
+    # BRANCH 3 : VOTRE MODÈLE CUSTOM (RFDETR, .pth/.safetensors)
+    # ==========================================
+    elif model_type == "RFDETR":
+        print(f"🛠️ Loading RFDETR model from: {target_model_path}")
+        
+        # --- (A) Initialisation du Modèle et Chargement des Poids ---
+        try:
+            # INSTANCIATION SIMPLE : Utilise l'API RFDETRBase pour charger le modèle
+            model = RFDETRBase(pretrain_weights=target_model_path)
+            
+            names = CUSTOM_CLASS_NAMES
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load RFDETR model.\n\nError: {e}")
+            return
+
+        with open(os.path.join(OUT_ROOT, "data.yaml"), "w") as f:
+            f.write("names:\n")
+            for cid, cname in names.items():
+                f.write(f"  {cid}: {cname}\n")
+
+        # --- (B) Boucle de Prédiction RFDETR et Conversion YOLO ---
+        for img_path in image_paths:
+            fn = os.path.basename(img_path)
+            stem, _ = os.path.splitext(fn)
+            txt_path = os.path.join(LBL_DIR, f"{stem}.txt")
+            
+            try:
+                # 1. Charger l'image en PIL (requis par RFDETR.predict)
+                image_pil = Image.open(img_path).convert("RGB")
+                width, height = image_pil.size
+                
+                # 2. Faire la prédiction (L'API RFDETR/Supervision fait le travail)
+                # La sortie est un objet supervision.Detections
+                detections = model.predict(image_pil, threshold=conf)
+                
+                with open(txt_path, "w") as f:
+                    # 3. Conversion du format Supervision au format YOLO
+                    if detections.xyxy.shape[0] > 0:
+                        
+                        xyxy = detections.xyxy 
+                        class_ids = detections.class_id 
+                        
+                        # Si les class_ids sont manquants (parfois le cas pour un modèle 1-classe), nous forçons à 0
+                        if class_ids is None or len(class_ids) != xyxy.shape[0]:
+                             class_ids = [0] * xyxy.shape[0]
+                        
+                        for bbox, cls_id in zip(xyxy, class_ids):
+                            xmin, ymin, xmax, ymax = bbox.tolist()
+                            
+                            # Conversion en coordonnées normalisées YOLO
+                            x_center = ((xmin + xmax) / 2) / width
+                            y_center = ((ymin + ymax) / 2) / height
+                            box_width = (xmax - xmin) / width
+                            box_height = (ymax - ymin) / height
+                            
+                            # Clamp pour la sécurité
+                            x_center = max(0, min(1, x_center))
+                            y_center = max(0, min(1, y_center))
+                            box_width = max(0, min(1, box_width))
+                            box_height = max(0, min(1, box_height))
+                            
+                            cls = int(cls_id)
+                            f.write(f"{cls} {x_center:.6f} {y_center:.6f} {box_width:.6f} {box_height:.6f}\n")
+                            
+                print(f"OK (RFDETR) {fn} -> {txt_path}")
+            
+            except Exception as e:
+                print(f"❌ Erreur de traitement pour {fn}: {e}")
+                continue
+
 
     # ==========================================
     # END OF PROCESSING
@@ -238,25 +338,17 @@ def process_images(model_path, model_type, video_path, images_dir, frame_interva
 # GUI FUNCTIONS
 # ------------------------
 
-def update_browse_behavior():
-    """Clear path if mode changes."""
-    model_path_var.set("")
-
 def browse_video():
     path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4 *.mov *.avi *.mkv")])
     if path:
         video_path_var.set(path)
 
 def browse_model():
-    mode = model_type_var.get()
-    
-    if mode == "YOLO":
-        title = "Select YOLO Weights (.pt)"
-        filetypes = [("YOLO weights", "*.pt *.pth")]
-    else:
-        title = "Select D-FINE Weights (Optional - Cancel to use Online)"
-        filetypes = [("D-FINE weights", "*.pth *.pt *.safetensors")]
-        
+    title = "Select Model Weights (.pt for YOLO, .pth/.safetensors for Custom/D-FINE)"
+    filetypes = [
+        ("Model files", "*.pt *.pth *.safetensors"),
+        ("All files", "*.*")
+    ]
     path = filedialog.askopenfilename(title=title, filetypes=filetypes)
         
     if path:
@@ -270,23 +362,36 @@ def browse_images():
 def run_process():
     try:
         model_path = model_path_var.get()
-        model_type = model_type_var.get()
         video_path = video_path_var.get() or None
         images_dir = images_dir_var.get() or "images"
-        frame_interval = int(frame_interval_var.get())
-        time_interval = float(time_interval_var.get()) if time_interval_var.get() else None
-        conf = float(conf_var.get())
-        iou = float(iou_var.get())
+        
+        # Validation des paramètres numériques
+        try:
+            frame_interval = int(frame_interval_var.get())
+        except ValueError:
+             messagebox.showerror("Error", "Frame interval must be an integer.")
+             return
+             
+        try:
+            time_interval_str = time_interval_var.get()
+            time_interval = float(time_interval_str) if time_interval_str else None
+        except ValueError:
+             messagebox.showerror("Error", "Time interval must be a number.")
+             return
+        
+        try:
+            conf = float(conf_var.get())
+            iou = float(iou_var.get())
+        except ValueError:
+             messagebox.showerror("Error", "Confidence and IoU must be numbers.")
+             return
+        
+        if not (0 <= conf <= 1 and 0 <= iou <= 1):
+             messagebox.showerror("Error", "Confidence and IoU must be between 0 and 1.")
+             return
 
-        # Validation checks
-        if model_type == "YOLO" and not os.path.exists(model_path):
-            messagebox.showerror("Error", "YOLO requires a local .pt file path.")
-            return
-        elif model_type == "DFINE" and model_path and not os.path.exists(model_path):
-            messagebox.showerror("Error", "The provided D-FINE path does not exist.\nClear the field to download from Hugging Face automatically.")
-            return
-
-        process_images(model_path, model_type, video_path, images_dir, frame_interval, time_interval, conf, iou)
+        # Le modèle est déterminé à l'intérieur de process_images
+        process_images(model_path, video_path, images_dir, frame_interval, time_interval, conf, iou)
 
     except Exception as e:
         messagebox.showerror("Error", str(e))
@@ -297,12 +402,11 @@ def run_process():
 # ------------------------
 
 root = tk.Tk()
-root.title("Auto Annotate (YOLO & D-FINE)")
-root.geometry("600x580")
+root.title("Auto Annotate (YOLO, D-FINE & Custom)")
+root.geometry("600x500")
 root.resizable(False, False)
 
 # Variables
-model_type_var = tk.StringVar(value="YOLO")
 model_path_var = tk.StringVar()
 video_path_var = tk.StringVar()
 images_dir_var = tk.StringVar()
@@ -311,28 +415,21 @@ time_interval_var = tk.StringVar(value="")
 conf_var = tk.StringVar(value="0.55")
 iou_var = tk.StringVar(value="0.45")
 
-# 1. Select Model Type
-type_frame = tk.LabelFrame(root, text="1. Select Model Type", padx=10, pady=5)
-type_frame.pack(fill="x", padx=20, pady=10)
-
-tk.Radiobutton(type_frame, text="Ultralytics YOLO (.pt)", variable=model_type_var, value="YOLO", command=update_browse_behavior).pack(side="left", padx=20)
-tk.Radiobutton(type_frame, text="Hugging Face D-FINE (Online/Local)", variable=model_type_var, value="DFINE", command=update_browse_behavior).pack(side="left", padx=20)
-
-# 2. Select Model
-tk.Label(root, text="Model Path (Leave empty for D-FINE online download):").pack(anchor="w", padx=20, pady=(5, 0))
+# 1. Sélectionner le Modèle
+tk.Label(root, text="1. Model Path (YOLO .pt, Custom .pth, ou vide pour D-FINE en ligne):").pack(anchor="w", padx=20, pady=(10, 0))
 entry_frame = tk.Frame(root)
 entry_frame.pack(fill="x", padx=20)
 tk.Entry(entry_frame, textvariable=model_path_var).pack(side="left", fill="x", expand=True)
 tk.Button(entry_frame, text="Browse...", command=browse_model).pack(side="left", padx=5)
 
-# 3. Video or Images
-tk.Label(root, text="Video (optional):").pack(anchor="w", padx=20, pady=(10, 0))
+# 2. Video ou Images
+tk.Label(root, text="2. Video (optional):").pack(anchor="w", padx=20, pady=(10, 0))
 entry_frame_vid = tk.Frame(root)
 entry_frame_vid.pack(fill="x", padx=20)
 tk.Entry(entry_frame_vid, textvariable=video_path_var).pack(side="left", fill="x", expand=True)
 tk.Button(entry_frame_vid, text="Browse...", command=browse_video).pack(side="left", padx=5)
 
-tk.Label(root, text="Image folder (if no video):").pack(anchor="w", padx=20, pady=(10, 0))
+tk.Label(root, text="3. Image folder (if no video):").pack(anchor="w", padx=20, pady=(10, 0))
 entry_frame_img = tk.Frame(root)
 entry_frame_img.pack(fill="x", padx=20)
 tk.Entry(entry_frame_img, textvariable=images_dir_var).pack(side="left", fill="x", expand=True)
@@ -355,6 +452,6 @@ tk.Entry(frame_conf, textvariable=iou_var, width=6).grid(row=0, column=3, padx=5
 
 # 5. Start Button
 tk.Button(root, text="START AUTO ANNOTATION", command=run_process, bg="#2ecc71", fg="white", font=("Arial", 12, "bold")).pack(pady=20, ipadx=10, ipady=5)
-tk.Label(root, text="Auto Annotate YOLO/D-FINE", fg="gray").pack(side="bottom", pady=5)
+tk.Label(root, text="Auto Annotate YOLO/D-FINE/Custom", fg="gray").pack(side="bottom", pady=5)
 
 root.mainloop()
